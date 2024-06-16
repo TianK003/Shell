@@ -1,0 +1,8 @@
+Input line: '/bin/ls -a -l ./../slike <vhod.in >izhod.out &'
+Token 0: '/bin/ls'
+Token 1: '-a'
+Token 2: '-l'
+Token 3: './../slike'
+Token 4: '<vhod.in'
+Token 5: '>izhod.out'
+Token 6: '&'
