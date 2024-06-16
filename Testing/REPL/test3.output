@@ -6,4 +6,5 @@ Token 3: '>izhod'
 Token 4: '&'
 Input redirect: 'vhod'
 Output redirect: 'izhod'
-Background: 1
+Background: '1'
+External command 'ukaz arg'
