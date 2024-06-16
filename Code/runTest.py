@@ -2,7 +2,7 @@ import os
 import subprocess
 import sys
 
-# define a global variable name for compiler
+# Define a global variable name for compiler
 exec_name = "shell.exe"
 testing_location = "../Testing"
 shell_c_path = "shell.c"
@@ -18,10 +18,6 @@ def compile_shell():
         print(e.stderr)
         sys.exit(1)
 
-
-def get_basename(path):
-    return 
-
 def run_tests_in_directory(directory):
     print(f"Running tests in directory: {os.path.basename(directory)}")
     for root, _, files in os.walk(directory):
@@ -31,10 +27,33 @@ def run_tests_in_directory(directory):
             expected_output = f"{test_base}.output"
             program_output = f"{test_base}.result"
 
-            with open(os.path.join(root, input_file), 'r') as infile, open(os.path.join(root, program_output), 'w') as outfile:
-                subprocess.run([f"./{exec_name}"], stdin=infile, stdout=outfile, text=True)
-            
-            diff_cmd = ["diff", "-q", "-Z", os.path.join(root, expected_output), os.path.join(root, program_output)]
+            input_path = os.path.join(root, input_file)
+            output_path = os.path.join(root, program_output)
+
+            with open(input_path, 'r') as infile:
+                input_lines = infile.readlines()
+
+            # Check the last line for "exit" or "exit x"
+            last_line = input_lines[-1].strip()
+            expected_exit_status = None
+            if last_line == "exit":
+                expected_exit_status = 0
+            elif last_line.startswith("exit "):
+                try:
+                    expected_exit_status = int(last_line.split()[1])
+                except ValueError:
+                    expected_exit_status = None
+
+            # Run the shell program and capture the exit status
+            with open(input_path, 'r') as infile, open(output_path, 'w') as outfile:
+                process = subprocess.run([f"./{exec_name}"], stdin=infile, stdout=outfile, stderr=subprocess.PIPE, text=True)
+                actual_exit_status = process.returncode
+
+                # Append exit status if applicable
+                if expected_exit_status is not None:
+                    outfile.write(f"Exit status: {actual_exit_status}\n")
+
+            diff_cmd = ["diff", "-q", "-Z", os.path.join(root, expected_output), output_path]
             result = subprocess.run(diff_cmd, capture_output=True, text=True)
 
             if result.returncode == 0:
