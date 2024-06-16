@@ -1,0 +1,4 @@
+debug 1
+as
+ls -a -l -p
+ps aux >procesi

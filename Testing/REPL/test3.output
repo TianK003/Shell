@@ -1,0 +1,9 @@
+Input line: 'ukaz arg <vhod >izhod &'
+Token 0: 'ukaz'
+Token 1: 'arg'
+Token 2: '<vhod'
+Token 3: '>izhod'
+Token 4: '&'
+Input redirect: 'vhod'
+Output redirect: 'izhod'
+Background: 1

@@ -1,0 +1,10 @@
+0
+Input line: 'debug'
+Token 0: 'debug'
+Executing builtin 'debug' in foreground
+1
+Input line: 'debug off'
+Token 0: 'debug'
+Token 1: 'off'
+Executing builtin 'debug' in foreground
+0
