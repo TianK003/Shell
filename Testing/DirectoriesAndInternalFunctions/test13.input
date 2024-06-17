@@ -1,0 +1,20 @@
+# Ukaz cpcat
+dirmk test
+dirch test
+dirwd base
+
+cpcat /etc/hostname hostname
+status
+cpcat hostname
+status
+
+cpcat /etc/fstab fstab
+status
+cpcat fstab
+status
+
+cpcat /etc/nowhere here
+status
+
+unlink hostname
+unlink fstab

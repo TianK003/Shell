@@ -1,0 +1,4 @@
+dirmk los
+dirls los
+dirls ./los
+dirls los/../los/.

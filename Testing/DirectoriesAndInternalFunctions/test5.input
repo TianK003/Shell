@@ -1,0 +1,6 @@
+basename /usr/bin/bash
+dirname /usr/bin/bash
+basename
+status
+dirname
+status

@@ -1,0 +1,20 @@
+dirch
+dirwd full
+dirwd base
+dirwd
+
+echo
+dirch /usr/bin
+dirwd full
+dirwd base
+dirwd
+
+echo
+dirch .././../usr/
+dirwd full
+dirwd base
+dirwd
+
+echo
+dirch /going/nowhere
+status

@@ -1,0 +1,24 @@
+dirmk test
+status
+dirch test
+status
+dirwd
+
+echo
+dirmk pes
+dirmk gos
+dirmk ris
+dirls
+
+echo
+dirmk gos
+status
+
+echo
+dirch pes
+dirwd
+dirch ../gos
+dirwd
+dirch .././ris/../pes/./
+dirwd
+dirch ..

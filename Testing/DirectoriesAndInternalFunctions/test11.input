@@ -1,0 +1,21 @@
+# Delo s povezavami
+dirch links
+dirwd base
+
+linksoft /etc/passwd gesla
+dirls
+linksoft gesla sifre
+dirls
+linksoft null/nil/None void
+dirls
+
+linkread gesla
+linkread sifre
+linkread void
+
+unlink gesla
+dirls
+unlink sifre
+dirls
+unlink void
+dirls
