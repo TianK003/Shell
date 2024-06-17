@@ -36,7 +36,7 @@ def run_tests_in_directory(directory):
             # Check the last line for "exit" or "exit x"
             last_line = input_lines[-1].strip()
             expected_exit_status = None
-            if last_line == "exit":
+            if last_line == "exit" or last_line == "status":
                 expected_exit_status = 0
             elif last_line.startswith("exit "):
                 try:
