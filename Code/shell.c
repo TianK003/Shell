@@ -6,7 +6,7 @@
 
 #define MAX_INPUT 512
 #define MAX_TOKENS 64
-#define NO_INTERNAL_COMMANDS 5
+#define NO_INTERNAL_COMMANDS 12
 // ta tabela ima vhodno vrstico
 char line[MAX_INPUT];
 char zaPrint[MAX_INPUT];
@@ -26,7 +26,7 @@ int zadnjiStatus = 0;
 int isExternal = 0;
 // da ves kako printat
 int jePrimerenDebug = 1;
-char *interniUkazi[] = {"debug", "exit", "help", "prompt", "status"};
+char *interniUkazi[] = {"debug", "exit", "help", "prompt", "status", "print", "echo", "len", "sum", "calc", "basename", "dirname"};
 int previousDebugLevel = 0;
 // da ves ce interaktivno izvajas
 int native = 0;
@@ -185,6 +185,13 @@ void help() {
     printf("- \033[0;32mhelp\033[0m izpise vse moznosti ukazov in njihovo uporabo.\n");
     printf("- \033[0;32mprompt [name]\033[0m nastavi ime shell-a na [name] ali izpise trenutno ime ce argument ni podan.\n");
     printf("- \033[0;32mstatus\033[0m izpise se izhodni status zadnjega izvedenega ukaza. Status pusti nespremenjen.\n");
+    printf("- \033[0;32mprint [args]\033[0m podane argumente na standardni izhod (brez koncnega skoka v novo vrstico).\n");
+    printf("- \033[0;32mecho [args]\033[0m izpise podane argumente na standardni izhod in naredi skok v novo vrstico (enako kot print + doda skok v novo vrstico).\n");
+    printf("- \033[0;32mlen [args]\033[0m izpise skupno dolzino argumentov (kot nizi).\n");
+    printf("- \033[0;32msum [args]\033[0m izpise vsoto argumentov (kot cela stevila).\n");
+    printf("- \033[0;32mcalc[arg1 op arg2]\033[0m izpise rezultat racunske operacije podane v argumentih (podprte operacije: +, -, *, /, mod).\n");
+    printf("- \033[0;32mbasename [path]\033[0m izpise zadnji del poti (ime datoteke) podane v argumentu. V kolikor argument ni podan, je izhodni status 1.\n");
+    printf("- \033[0;32mdirname [path]\033[0m izpise imenik podane poti [path]. V kolikor argument ni podan, je izhodni status 1.\n");
     printf("\n\033[0;33mOpozorilo\033[0m Ostali ukazi so zunanji in se niso implementirani. Pocakati boste morali na naslednjo nadgradnjo te naloge.\n");
     zadnjiStatus = 0;
 }
@@ -201,6 +208,100 @@ void prompt() {
             // printf("%s\n", shellName);
         }
     }
+    zadnjiStatus = 0;
+}
+
+void echo() {
+    for (int i = 1; i < tokenCount; i++) {
+        printf("%s ", line + tokens[i]);
+    }
+    printf("\n");
+    zadnjiStatus = 0;
+}
+
+void print_builtin() {
+    for (int i = 1; i < tokenCount; i++) {
+        
+        if (i != tokenCount -1) printf("%s ", line + tokens[i]);
+        else printf("%s", line + tokens[i]);
+    }
+    zadnjiStatus = 0;
+}
+
+void len() {
+    int dolzina = 0;
+    for (int i = 1; i < tokenCount; i++) {
+        dolzina += strlen(line + tokens[i]);
+    }
+    printf("%d\n", dolzina);
+    zadnjiStatus = 0;
+}
+
+void calc() {
+    int rezultat = 0;
+    if (tokenCount == 4) {
+        int prvoStevilo = atoi(line + tokens[1]);
+        int drugoStevilo = atoi(line + tokens[3]);
+        char operacija = line[tokens[2]];
+        switch (operacija) {
+            case '+':
+                rezultat = prvoStevilo + drugoStevilo;
+                break;
+            case '-':
+                rezultat = prvoStevilo - drugoStevilo;
+                break;
+            case '*':
+                rezultat = prvoStevilo * drugoStevilo;
+                break;
+            case '/':
+                rezultat = prvoStevilo / drugoStevilo;
+                break;
+            case '%':
+                rezultat = prvoStevilo % drugoStevilo;
+                break;
+            default:
+                printf("Napaka pri racunanju! Vnesel si nepodprto operacijo.\n");
+                zadnjiStatus = 1;
+                break;
+        }
+        printf("%d\n", rezultat);
+    }
+    else {
+        printf("Napaka pri racunanju! Stevilo podanih argumentov ni pravilno.\n");
+        zadnjiStatus = 1;
+        return;
+    }
+    zadnjiStatus = 0;
+}
+
+void sum() {
+    int vsota = 0;
+    for (int i = 1; i < tokenCount; i++) {
+        vsota += atoi(line + tokens[i]);
+    }
+    printf("%d\n", vsota);
+    zadnjiStatus = 0;
+}
+
+void basename() {
+    if (tokenCount == 1) {
+        zadnjiStatus = 1;
+        return;
+    }
+    char *s = line + tokens[1];
+    char *print = strrchr(s, '/') + 1; 
+    printf("%s\n", print);
+    zadnjiStatus = 0;
+}
+
+void dirname() {
+    if (tokenCount == 1) {
+        zadnjiStatus = 1;
+        return;
+    }
+    char *print = line + tokens[1];
+    *strrchr(print, '/') = '\0';
+    printf("%s\n", print);
     zadnjiStatus = 0;
 }
 
@@ -236,6 +337,41 @@ void execute_builtin(int ukaz) {
             break;
         case 4:
             status();
+            printInputLine();
+            redirect();
+            break;
+        case 5:
+            print_builtin();
+            printInputLine();
+            redirect();
+            break;
+        case 6:
+            echo();
+            printInputLine();
+            redirect();
+            break;
+        case 7:
+            len();
+            printInputLine();
+            redirect();
+            break;
+        case 8:
+            sum();
+            printInputLine();
+            redirect();
+            break;
+        case 9:
+            calc();
+            printInputLine();
+            redirect();
+            break;
+        case 10:
+            basename();
+            printInputLine();
+            redirect();
+            break;
+        case 11:
+            dirname();
             printInputLine();
             redirect();
             break;
@@ -304,5 +440,5 @@ int main(int argc, char *argv[]) {
             printf("%s> ", shellName);
         }
     }
-    return 0;
+    return zadnjiStatus;
 }
