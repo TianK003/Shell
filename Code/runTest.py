@@ -61,6 +61,17 @@ def run_tests_in_directory(directory):
             else:
                 print(f"\033[91m{input_file}: FAIL\033[0m")
 
+def cleanup_temp_files():
+    for entry in os.listdir("."):
+        if entry != "shell.c" and entry != "runTest.py" and entry != exec_name:
+            if os.path.isdir(entry):
+                for root, _, files in os.walk(entry):
+                    for file in files:
+                        os.remove(os.path.join(root, file))
+                    os.rmdir(root)
+            else:
+                os.remove(entry)
+
 def main():
     compile_shell()
     
@@ -68,6 +79,7 @@ def main():
         full_path = os.path.join(testing_location, entry)
         if os.path.isdir(full_path):
             run_tests_in_directory(full_path)
+            cleanup_temp_files()
 
 if __name__ == "__main__":
     main()
