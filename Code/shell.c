@@ -1,15 +1,20 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <ctype.h>
 #include <string.h>
+#include <ctype.h>
 #include <unistd.h>
+#include <errno.h>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <fcntl.h>
 
-#define MAX_INPUT 512
+#define MAX_INPUT_LEN 512
 #define MAX_TOKENS 64
-#define NO_INTERNAL_COMMANDS 12
+#define NO_INTERNAL_COMMANDS 25
 // ta tabela ima vhodno vrstico
-char line[MAX_INPUT];
-char zaPrint[MAX_INPUT];
+char line[MAX_INPUT_LEN];
+char zaPrint[MAX_INPUT_LEN];
 // v to tabelo si hranim samo indekse, kjer se zacnejo besede
 int tokens[MAX_TOKENS];
 // si belezim koliko tokenov sem nasel
@@ -26,7 +31,7 @@ int zadnjiStatus = 0;
 int isExternal = 0;
 // da ves kako printat
 int jePrimerenDebug = 1;
-char *interniUkazi[] = {"debug", "exit", "help", "prompt", "status", "print", "echo", "len", "sum", "calc", "basename", "dirname"};
+char *interniUkazi[] = {"debug", "exit", "help", "prompt", "status", "print", "echo", "len", "sum", "calc", "basename", "dirname", "dirch", "dirwd", "dirmk", "dirrm", "dirls", "rename", "unlink", "remove", "linkhard", "linksoft", "linkread", "linklist", "cpcat"};
 int previousDebugLevel = 0;
 // da ves ce interaktivno izvajas
 int native = 0;
@@ -89,7 +94,7 @@ void redirect() {
 }
 
 void pripraviInput() {
-    for (int i = 0; i < MAX_INPUT; i++) {
+    for (int i = 0; i < MAX_INPUT_LEN; i++) {
         if (line[i] == '\n') line[i] = '\0';
         if (line[i] == '\r') line[i] = '\0';
         zaPrint[i] = line[i];
@@ -100,10 +105,10 @@ void pripraviInput() {
 void tokenize() {
     int isciPrvega = 1;
     int jeVNarekovajih = 0;
-    for (int i = 0; i < MAX_INPUT; i++) {
+    for (int i = 0; i < MAX_INPUT_LEN; i++) {
         // naleteli smo na komentar, lahko zakljucimo s to vrstico
         if (line[i] == '#' && jeVNarekovajih == 0 && isciPrvega == 1) {
-            for (int j = i; j < MAX_INPUT; j++) {
+            for (int j = i; j < MAX_INPUT_LEN; j++) {
                 line[j] = '\0';
             }
             break;
@@ -171,14 +176,14 @@ void debug() {
     zadnjiStatus = 0;
 }
 
-void izhod() {
+void izhod_builtin() {
     if (tokenCount == 2) {
         zadnjiStatus = atoi(line + tokens[1]);
     }
     exit(zadnjiStatus);
 }
 
-void help() {
+void help_builtin() {
     printf("Izpis vseh moznih ukazov in njihova uporaba:\n");
     printf("- \033[0;32mdebug [level]\033[0m nastavi debug level na [level] ali izpise trenutno vrednost ce argument ni podan.\n");
     printf("- \033[0;32mexit [status]\033[0m zapre shell z statusom [status] ali z zadnjim zabelezenim statusom, ce argument ni podan.\n");
@@ -192,11 +197,24 @@ void help() {
     printf("- \033[0;32mcalc[arg1 op arg2]\033[0m izpise rezultat racunske operacije podane v argumentih (podprte operacije: +, -, *, /, mod).\n");
     printf("- \033[0;32mbasename [path]\033[0m izpise zadnji del poti (ime datoteke) podane v argumentu. V kolikor argument ni podan, je izhodni status 1.\n");
     printf("- \033[0;32mdirname [path]\033[0m izpise imenik podane poti [path]. V kolikor argument ni podan, je izhodni status 1.\n");
+    printf("- \033[0;32mdirch [imenik]\033[0m spremeni trenutni aktivni imenik v imenik [imenik]. V kolikor argument ni podan, skocimo v korenski imenik.\n");
+    printf("- \033[0;32mdirwd [mode]\033[0m izpise trenutni aktivni imenik. Ce je [mode] 'full', se izpise celotna pot, ce je 'base' pa samo osnova imena (basename), privzeto (ce ni podano) je 'base'.\n");
+    printf("- \033[0;32mdirmk [imenik]\033[0m ustvari nov imenik [imenik]. V kolikor ze obstaja, se izpise napaka.\n");
+    printf("- \033[0;32mdirrm [imenik]\033[0m izbrise imenik [imenik]. V kolikor ne obstaja, se izpise napaka.\n");
+    printf("- \033[0;32mdirls [imenik]\033[0m izpise vsebino imenika [imenik]. V kolikor ni podan argument, se izpise trenutni imenik. Izpisejo se le imena datotek, locena z DVEMA presledkoma.\n");
+    printf("- \033[0;32mrename [old] [new]\033[0m preimenuje datoteko [old] v [new].\n");
+    printf("- \033[0;32munlink [file]\033[0m izbrise datoteko [file] (gre samo za odstranitev imeniskega vnosa - sistemski klic unlink).\n");
+    printf("- \033[0;32mremove [file]\033[0m izbrise datoteko [file] (sistemski klic remove).\n");
+    printf("- \033[0;32mlinkhard [old] [new]\033[0m ustvari trdo povezavo [new] na datoteko [old].\n");
+    printf("- \033[0;32mlinksoft [old] [new]\033[0m ustvari simbolno povezavo [new] na datoteko [old].\n");
+    printf("- \033[0;32mlinkread [link]\033[0m izpise cilj podane simbolicne povezave.\n");
+    printf("- \033[0;32mlinklist [name]\033[0m v trenutnem imeniku poisce vse trde povezave na datoteko z imenom [name]. Povezave se izpisejo loceno z dvema presledkoma.\n");
+    printf("- \033[0;32mcpcat [file1] [file2]\033[0m prekopira vsebino datoteke [file1] v datoteko [file2].\n");
     printf("\n\033[0;33mOpozorilo\033[0m Ostali ukazi so zunanji in se niso implementirani. Pocakati boste morali na naslednjo nadgradnjo te naloge.\n");
     zadnjiStatus = 0;
 }
 
-void prompt() {
+void prompt_builtin() {
     if (tokenCount == 1) printf("%s\n", shellName);
     else {
         if (strlen(line + tokens[1]) > 8) {
@@ -211,7 +229,7 @@ void prompt() {
     zadnjiStatus = 0;
 }
 
-void echo() {
+void echo_builtin() {
     for (int i = 1; i < tokenCount; i++) {
         printf("%s ", line + tokens[i]);
     }
@@ -228,7 +246,7 @@ void print_builtin() {
     zadnjiStatus = 0;
 }
 
-void len() {
+void len_builtin() {
     int dolzina = 0;
     for (int i = 1; i < tokenCount; i++) {
         dolzina += strlen(line + tokens[i]);
@@ -237,7 +255,7 @@ void len() {
     zadnjiStatus = 0;
 }
 
-void calc() {
+void calc_builtin() {
     int rezultat = 0;
     if (tokenCount == 4) {
         int prvoStevilo = atoi(line + tokens[1]);
@@ -274,7 +292,7 @@ void calc() {
     zadnjiStatus = 0;
 }
 
-void sum() {
+void sum_builtin() {
     int vsota = 0;
     for (int i = 1; i < tokenCount; i++) {
         vsota += atoi(line + tokens[i]);
@@ -283,7 +301,7 @@ void sum() {
     zadnjiStatus = 0;
 }
 
-void basename() {
+void basename_builtin() {
     if (tokenCount == 1) {
         zadnjiStatus = 1;
         return;
@@ -294,7 +312,7 @@ void basename() {
     zadnjiStatus = 0;
 }
 
-void dirname() {
+void dirname_builtin() {
     if (tokenCount == 1) {
         zadnjiStatus = 1;
         return;
@@ -305,8 +323,220 @@ void dirname() {
     zadnjiStatus = 0;
 }
 
-void status() {
+void status_builtin() {
     printf("%d\n", zadnjiStatus);
+}
+
+void dirch_builtin() {
+    if (tokenCount == 1) {
+        chdir("/");
+    }
+    else {
+        if (chdir(line + tokens[1]) == -1) {
+            fflush(stdout);
+            fprintf(stderr, "dirch: %s\n", strerror(errno));
+            zadnjiStatus = errno;\
+            return;
+        }
+    }
+    zadnjiStatus = 0;
+}
+
+void dirwd_builtin() {
+    char cwd[MAX_INPUT_LEN];
+    getcwd(cwd, MAX_INPUT_LEN);
+    if (tokenCount == 1 || strcmp(line + tokens[1], "base") == 0) {
+        char *tmp = strrchr(cwd, '/') + 1; 
+        if (tmp[0] == '\0') {
+            tmp--;
+        }
+        strcpy(cwd, tmp);
+    }
+    printf("%s\n", cwd);
+    zadnjiStatus = 0;
+}
+
+void dirmk_builtin() {
+    if (mkdir(line + tokens[1], 0777) == -1) {
+        fflush(stdout);
+        fprintf(stderr, "dirmk: %s\n", strerror(errno));
+        zadnjiStatus = errno;
+        return;
+    }
+    zadnjiStatus = 0;
+}
+
+void dirrm_builtin() {
+    if (rmdir(line + tokens[1]) == -1) {
+        fflush(stdout);
+        zadnjiStatus = errno;
+        fprintf(stderr, "dirrm: %s\n", strerror(errno));
+        return;
+    }
+    zadnjiStatus = 0;
+}
+
+void dirls_builtin() {
+    DIR *dir;
+    struct dirent *entry;
+    if (tokenCount == 1) {
+        dir = opendir(".");
+    }
+    else {
+        dir = opendir(line + tokens[1]);
+    }
+    if (dir == NULL) {
+        fflush(stdout);
+        zadnjiStatus = errno;
+        fprintf(stderr, "dirrm: %s\n", strerror(errno));
+        zadnjiStatus = errno;
+        return;
+    }
+    while ((entry = readdir(dir)) != NULL) {
+        printf("%s  ", entry->d_name);
+        fflush(stdout);
+    }
+    printf("\n");
+    closedir(dir);
+    zadnjiStatus = 0;
+}
+
+void rename_builtin() {
+    if (rename(line + tokens[1], line + tokens[2]) == -1) {
+        fflush(stdout);
+        zadnjiStatus = errno;
+        fprintf(stderr, "rename: %s\n", strerror(errno));
+        return;
+    }
+    zadnjiStatus = 0;
+}
+
+void unlink_builtin() {
+    if (unlink(line + tokens[1]) == -1) {
+        fflush(stdout);
+        zadnjiStatus = errno;
+        fprintf(stderr, "unlink: %s\n", strerror(errno));
+        return;
+    }
+    zadnjiStatus = 0;
+}
+
+void remove_builtin() {
+    if (remove(line + tokens[1]) == -1) {
+        fflush(stdout);
+        zadnjiStatus = errno;
+        fprintf(stderr, "remove: %s\n", strerror(errno));
+        return;
+    }
+    zadnjiStatus = 0;
+}
+
+void linkhard_builtin() {
+    if (link(line + tokens[1], line + tokens[2]) == -1) {
+        fflush(stdout);
+        zadnjiStatus = errno;
+        fprintf(stderr, "linkhard: %s\n", strerror(errno));
+        return;
+    }
+    zadnjiStatus = 0;
+}
+
+void linksoft_builtin() {
+    if (symlink(line + tokens[1], line + tokens[2]) == -1) {
+        fflush(stdout);
+        zadnjiStatus = errno;
+        fprintf(stderr, "linksoft: %s\n", strerror(errno));
+        return;
+    }
+    zadnjiStatus = 0;
+}
+
+void linkread_builtin() {
+    char buf[1024];
+    ssize_t len;
+    char *ime = line + tokens[1];
+    len = readlink(ime, buf, sizeof(buf)-1);
+    if (len != -1) {
+        buf[len] = '\0';
+        printf("%s\n", buf);
+    } else {
+        fflush(stdout);
+        zadnjiStatus = errno;
+        fprintf(stderr, "linkread: %s\n", strerror(errno));
+        return;
+    }
+    zadnjiStatus = 0;
+}
+
+void linklist_builtin() {
+    char *ime = line + tokens[1];
+    struct dirent *dp;
+    DIR *dir = opendir(".");
+    if (!dir) {
+        fflush(stdout);
+        zadnjiStatus = errno;
+        fprintf(stderr, "opendir: %s\n", strerror(errno));
+        return;
+    }
+
+    struct stat openedFileHardLinkValue, argHardLinkValue;
+    if (lstat(ime, &argHardLinkValue) == -1) {
+        fflush(stdout);
+        zadnjiStatus = errno;
+        fprintf(stderr, "lstat: %s\n", strerror(errno));
+        return;
+    }
+
+    while ((dp = readdir(dir)) != NULL) {
+        if (lstat(dp->d_name, &openedFileHardLinkValue) == -1) {
+            fflush(stdout);
+            zadnjiStatus = errno;
+            fprintf(stderr, "lstat: %s\n", strerror(errno));
+            return;
+        }
+        if (openedFileHardLinkValue.st_ino == argHardLinkValue.st_ino) {
+            printf("%s  ", dp->d_name);
+        }
+    }
+    printf("\n");
+
+    closedir(dir);
+}
+
+void kopiraj(int input, int output) {
+    unsigned char buf = 0;
+    while (read(input, &buf, 1) != 0) write(output, &buf, 1);
+    if (input != STDIN_FILENO) close(input);
+    if (output != STDOUT_FILENO) close(output);
+}
+
+void cpcat_builtin() {
+    fflush(stdout);
+    if (tokenCount == 1) kopiraj(STDIN_FILENO, STDOUT_FILENO);
+    else if (tokenCount == 2)
+    {
+        int vhod = open(line + tokens[1], O_CREAT | O_RDONLY, 0644);
+        if (vhod == -1) {
+            fflush(stdout);
+            zadnjiStatus = errno;
+            fprintf(stderr, "cpcat: %s\n", strerror(errno));
+            return;
+        }
+        kopiraj(vhod, STDOUT_FILENO);
+    }
+    else if (tokenCount == 3)
+    {
+        int vhod = strcmp(line + tokens[1], "-") ? open(line + tokens[1], O_RDONLY, 0644) : STDIN_FILENO;
+        int izhod = open(line + tokens[2], O_CREAT | O_WRONLY, 0644);
+        if (vhod == -1 || izhod == -1) {
+            fflush(stdout);
+            zadnjiStatus = errno;
+            fprintf(stderr, "cpcat: %s\n", strerror(errno));
+            return;
+        }
+        kopiraj(vhod, izhod);
+    }
+    zadnjiStatus = 0;
 }
 
 void execute_builtin(int ukaz) {
@@ -321,22 +551,22 @@ void execute_builtin(int ukaz) {
             debug();
             break;
         case 1:
-            izhod();
+            izhod_builtin();
             printInputLine();
             redirect();
             break;
         case 2:
-            help();
+            help_builtin();
             printInputLine();
             redirect();
             break;
         case 3:
-            prompt();
+            prompt_builtin();
             printInputLine();
             redirect();
             break;
         case 4:
-            status();
+            status_builtin();
             printInputLine();
             redirect();
             break;
@@ -346,32 +576,97 @@ void execute_builtin(int ukaz) {
             redirect();
             break;
         case 6:
-            echo();
+            echo_builtin();
             printInputLine();
             redirect();
             break;
         case 7:
-            len();
+            len_builtin();
             printInputLine();
             redirect();
             break;
         case 8:
-            sum();
+            sum_builtin();
             printInputLine();
             redirect();
             break;
         case 9:
-            calc();
+            calc_builtin();
             printInputLine();
             redirect();
             break;
         case 10:
-            basename();
+            basename_builtin();
             printInputLine();
             redirect();
             break;
         case 11:
-            dirname();
+            dirname_builtin();
+            printInputLine();
+            redirect();
+            break;
+        case 12:
+            dirch_builtin();
+            printInputLine();
+            redirect();
+            break;
+        case 13:
+            dirwd_builtin();
+            printInputLine();
+            redirect();
+            break;
+        case 14:
+            dirmk_builtin();
+            printInputLine();
+            redirect();
+            break;
+        case 15:
+            dirrm_builtin();
+            printInputLine();
+            redirect();
+            break;
+        case 16:
+            dirls_builtin();
+            printInputLine();
+            redirect();
+            break;
+        case 17:
+            rename_builtin();
+            printInputLine();
+            redirect();
+            break;
+        case 18:
+            unlink_builtin();
+            printInputLine();
+            redirect();
+            break;
+        case 19:
+            remove_builtin();
+            printInputLine();
+            redirect();
+            break;
+        case 20:
+            linkhard_builtin();
+            printInputLine();
+            redirect();
+            break;
+        case 21:
+            linksoft_builtin();
+            printInputLine();
+            redirect();
+            break;
+        case 22:
+            linkread_builtin();
+            printInputLine();
+            redirect();
+            break;
+        case 23:
+            linklist_builtin();
+            printInputLine();
+            redirect();
+            break;
+        case 24:
+            cpcat_builtin();
             printInputLine();
             redirect();
             break;
@@ -427,7 +722,7 @@ int main(int argc, char *argv[]) {
             execute_external();
         }
         // sprazni input line, da ni problemov pri naslednjem branju
-        for (int i = 0; i < MAX_INPUT; i++) {
+        for (int i = 0; i < MAX_INPUT_LEN; i++) {
             line[i] = '\0';
             zaPrint[i] = '\0';
         }
