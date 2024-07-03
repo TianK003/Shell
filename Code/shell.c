@@ -12,10 +12,11 @@
 
 #define MAX_INPUT_LEN 512
 #define MAX_TOKENS 64
-#define NO_INTERNAL_COMMANDS 32
+#define NO_INTERNAL_COMMANDS 35
 // ta tabela ima vhodno vrstico
 char line[MAX_INPUT_LEN];
 char zaPrint[MAX_INPUT_LEN];
+char proc_path[MAX_INPUT_LEN];
 // v to tabelo si hranim samo indekse, kjer se zacnejo besede
 int tokens[MAX_TOKENS];
 // si belezim koliko tokenov sem nasel
@@ -32,7 +33,7 @@ int zadnjiStatus = 0;
 int isExternal = 0;
 // da ves kako printat
 int jePrimerenDebug = 1;
-char *interniUkazi[] = {"debug", "exit", "help", "prompt", "status", "print", "echo", "len", "sum", "calc", "basename", "dirname", "dirch", "dirwd", "dirmk", "dirrm", "dirls", "rename", "unlink", "remove", "linkhard", "linksoft", "linkread", "linklist", "cpcat", "pid", "ppid", "uid", "euid", "gid", "egid", "sysinfo"};
+char *interniUkazi[] = {"debug", "exit", "help", "prompt", "status", "print", "echo", "len", "sum", "calc", "basename", "dirname", "dirch", "dirwd", "dirmk", "dirrm", "dirls", "rename", "unlink", "remove", "linkhard", "linksoft", "linkread", "linklist", "cpcat", "pid", "ppid", "uid", "euid", "gid", "egid", "sysinfo", "proc", "pids", "pinfo"};
 int previousDebugLevel = 0;
 // da ves ce interaktivno izvajas
 int native = 0;
@@ -218,6 +219,9 @@ void help_builtin() {
     printf("- \033[0;32mgid\033[0m izpise GID skupine, kateri pripada procesa lupine.\n");
     printf("- \033[0;32megid\033[0m izpise EGID skupine, kateri AKTUALNO pripada proces lupine.\n");
     printf("- \033[0;32msysinfo\033[0m izpise osnovne informacije o sistemu (sysname, nodename, release, version, machine).\n");
+    printf("- \033[0;32mproc [pot]\033[0m nastavitev poti do procfs datotecnega sistema. Ce argument ni podan, se izpise trenutna nastavljena pot.\n");
+    printf("- \033[0;32mpids\033[0m izpise PID-e vseh procesov v procfs.\n");
+    printf("- \033[0;32mpinfo \033[0m izpise informacije o trenutnih procesih (PID, PPID, STANJE, IME), ki jih pridobi iz datoteke stat v procfs.\n");
     printf("\n\033[0;33mOpozorilo\033[0m Ostali ukazi so zunanji in se niso implementirani. Pocakati boste morali na naslednjo nadgradnjo te naloge.\n");
     zadnjiStatus = 0;
 }
@@ -590,6 +594,131 @@ void sysinfo_builtin() {
     zadnjiStatus = 0;
 }
 
+void proc_builtin() {
+    if (tokenCount == 1) {
+        printf("%s\n", proc_path);
+    }
+    else {
+        char *pot = line + tokens[1];
+        if (access(pot, F_OK | R_OK) == -1) {
+            zadnjiStatus = 1;
+            return;
+        }
+        strcpy(proc_path, pot);
+    }
+    zadnjiStatus = 0;
+}
+
+void sortirajProcese(int *pids, int stProcesov, int pinfo) {
+    int i, j;
+    for (i = 0; i < stProcesov - 1; i++) {
+        for (j = 0; j < stProcesov - i - 1; j++) {
+            if (pids[j] > pids[j + 1]) {
+                // swap
+                int temp = pids[j];
+                pids[j] = pids[j + 1];
+                pids[j + 1] = temp;
+            }
+        }
+    }
+    if (pinfo == 0) {
+        for (int i = 0; i < stProcesov; i++) {
+            printf("%d\n", pids[i]);
+        }
+    }
+    else {
+        printf("%5s %5s %6s %s\n", "PID", "PPID", "STANJE", "IME");
+        for (int i = 0; i < stProcesov; i++) {
+            char pot[1024];
+            int pid, ppid;
+            char stanje;
+            char ime[128];
+            snprintf(pot, sizeof(pot), "%s/%d/stat", proc_path, pids[i]);
+            FILE *stat = fopen(pot, "r");
+            if (stat == NULL) {
+                fflush(stdout);
+                zadnjiStatus = errno;
+                fprintf(stderr, "opening stat: %s\n", strerror(errno));
+                return;
+            }
+            // te zacetni podakti ne bi smeli bit daljsi od tega - ze to je ful prevec
+            char vsebina[512];
+            if (fgets(vsebina, sizeof(vsebina), stat) != NULL) {
+                
+                sscanf(vsebina, "%d %s %c %d", &pid, ime, &stanje, &ppid);
+            } else {
+                fflush(stdout);
+                zadnjiStatus = errno;
+                fprintf(stderr, "reading stat: %s\n", strerror(errno));
+                return;
+            }
+            // zadnji oklepaj odstrani, sprednjega pa ne izpisi
+            ime[strlen(ime) - 1] = '\0';
+            printf("%5d %5d %6c %s\n", pid, ppid, stanje, ime + 1);
+        }
+    }
+}
+
+void pids_builtin() {
+    DIR *proc_dir;
+    struct dirent *proces;
+
+    int stProcesov = 0;
+    proc_dir = opendir(proc_path);
+    if (proc_dir == NULL) {
+        fflush(stdout);
+        zadnjiStatus = errno;
+        fprintf(stderr, "pids: %s\n", strerror(errno));
+        return;
+    } 
+    while ((proces = readdir(proc_dir)) != NULL) {
+            if (isdigit(proces->d_name[0])) {
+                stProcesov++;
+            }
+    }
+    int shraniStProcesov = stProcesov;
+    closedir(proc_dir);
+    int *pids = (int *)malloc(stProcesov * sizeof(int));
+    proc_dir = opendir(proc_path);
+    while ((proces = readdir(proc_dir)) != NULL) {
+            if (isdigit(proces->d_name[0])) {
+                pids[--stProcesov] = atoi(proces->d_name);
+            }
+    }
+    sortirajProcese(pids, shraniStProcesov, 0);
+    zadnjiStatus = 0;
+}
+
+void pinfo_builtin() {
+    DIR *proc_dir;
+    struct dirent *proces;
+
+    int stProcesov = 0;
+    proc_dir = opendir(proc_path);
+    if (proc_dir == NULL) {
+        fflush(stdout);
+        zadnjiStatus = errno;
+        fprintf(stderr, "pids: %s\n", strerror(errno));
+        return;
+    } 
+    while ((proces = readdir(proc_dir)) != NULL) {
+            if (isdigit(proces->d_name[0])) {
+                stProcesov++;
+            }
+    }
+    int shraniStProcesov = stProcesov;
+    closedir(proc_dir);
+    int *pids = (int *)malloc(stProcesov * sizeof(int));
+    proc_dir = opendir(proc_path);
+    while ((proces = readdir(proc_dir)) != NULL) {
+            if (isdigit(proces->d_name[0])) {
+                pids[--stProcesov] = atoi(proces->d_name);
+            }
+    }
+    sortirajProcese(pids, shraniStProcesov, 1);
+    zadnjiStatus = 0;
+}
+
 void execute_builtin(int ukaz) {
     if (line[tokens[tokenCount]] == '&') {
         background = 1;
@@ -756,6 +885,21 @@ void execute_builtin(int ukaz) {
             printInputLine();
             redirect();
             break;
+        case 32:
+            proc_builtin();
+            printInputLine();
+            redirect();
+            break;
+        case 33:
+            pids_builtin();
+            printInputLine();
+            redirect();
+            break;
+        case 34:
+            pinfo_builtin();
+            printInputLine();
+            redirect();
+            break;
         default:
             printf("Napaka pri prepoznavanju internega ukaza! Do sem ne bi smel priti.\n");
             break;
@@ -795,6 +939,7 @@ int main(int argc, char *argv[]) {
     native = isatty(STDIN_FILENO);
     strcpy(shellName, "mysh");
     if (native) printf("%s> ", shellName);
+    strcpy(proc_path, "/proc");
 
     while (fgets(line, sizeof(line), stdin) != NULL) {
         pripraviInput();
