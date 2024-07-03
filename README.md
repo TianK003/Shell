@@ -10,10 +10,10 @@ Testing is done by each phase, so every feature added will be tested.
 
 ### Implemented Features
 - [x] Simple reading of input and tokenization (REPL)
+- [X] Execution of several internal commands
+- [X] Support for executing external commands
+- [X] Background execution and redirection
 
 ### Features to be Implemented
-- [ ] Execution of several internal commands
-- [ ] Support for executing external commands
-- [ ] Background execution and redirection
 - [ ] Pipeline support
 
