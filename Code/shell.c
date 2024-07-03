@@ -8,10 +8,11 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <fcntl.h>
+#include <sys/utsname.h>
 
 #define MAX_INPUT_LEN 512
 #define MAX_TOKENS 64
-#define NO_INTERNAL_COMMANDS 25
+#define NO_INTERNAL_COMMANDS 32
 // ta tabela ima vhodno vrstico
 char line[MAX_INPUT_LEN];
 char zaPrint[MAX_INPUT_LEN];
@@ -31,7 +32,7 @@ int zadnjiStatus = 0;
 int isExternal = 0;
 // da ves kako printat
 int jePrimerenDebug = 1;
-char *interniUkazi[] = {"debug", "exit", "help", "prompt", "status", "print", "echo", "len", "sum", "calc", "basename", "dirname", "dirch", "dirwd", "dirmk", "dirrm", "dirls", "rename", "unlink", "remove", "linkhard", "linksoft", "linkread", "linklist", "cpcat"};
+char *interniUkazi[] = {"debug", "exit", "help", "prompt", "status", "print", "echo", "len", "sum", "calc", "basename", "dirname", "dirch", "dirwd", "dirmk", "dirrm", "dirls", "rename", "unlink", "remove", "linkhard", "linksoft", "linkread", "linklist", "cpcat", "pid", "ppid", "uid", "euid", "gid", "egid", "sysinfo"};
 int previousDebugLevel = 0;
 // da ves ce interaktivno izvajas
 int native = 0;
@@ -210,6 +211,13 @@ void help_builtin() {
     printf("- \033[0;32mlinkread [link]\033[0m izpise cilj podane simbolicne povezave.\n");
     printf("- \033[0;32mlinklist [name]\033[0m v trenutnem imeniku poisce vse trde povezave na datoteko z imenom [name]. Povezave se izpisejo loceno z dvema presledkoma.\n");
     printf("- \033[0;32mcpcat [file1] [file2]\033[0m prekopira vsebino datoteke [file1] v datoteko [file2].\n");
+    printf("- \033[0;32mpid\033[0m izpise PID procesa lupine.\n");
+    printf("- \033[0;32mppid\033[0m izpise PID starsevsekga procesa lupine.\n");
+    printf("- \033[0;32muid\033[0m izpise UID uporabnika, ki je lastnik procesa lupine.\n");
+    printf("- \033[0;32meuid\033[0m izpise EUID uporabnika, ki je AKTUALNI lastnik procesa lupine.\n");
+    printf("- \033[0;32mgid\033[0m izpise GID skupine, kateri pripada procesa lupine.\n");
+    printf("- \033[0;32megid\033[0m izpise EGID skupine, kateri AKTUALNO pripada proces lupine.\n");
+    printf("- \033[0;32msysinfo\033[0m izpise osnovne informacije o sistemu (sysname, nodename, release, version, machine).\n");
     printf("\n\033[0;33mOpozorilo\033[0m Ostali ukazi so zunanji in se niso implementirani. Pocakati boste morali na naslednjo nadgradnjo te naloge.\n");
     zadnjiStatus = 0;
 }
@@ -539,6 +547,49 @@ void cpcat_builtin() {
     zadnjiStatus = 0;
 }
 
+void pid_builtin() {
+    printf("%d\n", getpid());
+    zadnjiStatus = 0;
+}
+
+void ppid_builtin() {
+    printf("%d\n", getppid());
+    zadnjiStatus = 0;
+}
+
+void uid_builtin() {
+    printf("%d\n", getuid());
+    zadnjiStatus = 0;
+}
+
+void euid_builtin() {
+    printf("%d\n", geteuid());
+    zadnjiStatus = 0;
+}
+
+void gid_builtin() {
+    printf("%d\n", getgid());
+    zadnjiStatus = 0;
+}
+
+void egid_builtin() {
+    printf("%d\n", getegid());
+    zadnjiStatus = 0;
+}
+
+// za pomoc s klicem uname glej: https://man7.org/linux/man-pages/man2/uname.2.html
+void sysinfo_builtin() {
+    struct utsname uts;
+    if (uname(&uts) == -1) {
+        fflush(stdout);
+        zadnjiStatus = errno;
+        fprintf(stderr, "sysinfo: %s\n", strerror(errno));
+        return;
+    }
+    printf("Sysname: %s\nNodename: %s\nRelease: %s\nVersion: %s\nMachine: %s\n", uts.sysname, uts.nodename, uts.release, uts.version, uts.machine);
+    zadnjiStatus = 0;
+}
+
 void execute_builtin(int ukaz) {
     if (line[tokens[tokenCount]] == '&') {
         background = 1;
@@ -667,6 +718,41 @@ void execute_builtin(int ukaz) {
             break;
         case 24:
             cpcat_builtin();
+            printInputLine();
+            redirect();
+            break;
+        case 25:
+            pid_builtin();
+            printInputLine();
+            redirect();
+            break;
+        case 26:
+            ppid_builtin();
+            printInputLine();
+            redirect();
+            break;
+        case 27:
+            uid_builtin();
+            printInputLine();
+            redirect();
+            break;
+        case 28:
+            euid_builtin();
+            printInputLine();
+            redirect();
+            break;
+        case 29:
+            gid_builtin();
+            printInputLine();
+            redirect();
+            break;
+        case 30:
+            egid_builtin();
+            printInputLine();
+            redirect();
+            break;
+        case 31:
+            sysinfo_builtin();
             printInputLine();
             redirect();
             break;
