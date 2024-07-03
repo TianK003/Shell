@@ -1,0 +1,4 @@
+arch
+hostname -f
+uname -o -r
+expr ( 1 + 2 + 3 ) * 7

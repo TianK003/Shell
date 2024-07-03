@@ -1,0 +1,9 @@
+proc procdirs/proc-1
+status
+
+pinfo
+status
+echo
+
+pinfo
+status

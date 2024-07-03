@@ -1,0 +1,4 @@
+/bin/file /etc/passwd
+/usr/bin/arch
+/usr/bin/head -3 /etc/group
+/sbin/runlevel

@@ -1,0 +1,6 @@
+/etc/passwd: ASCII text
+x86_64
+root:x:0:
+daemon:x:1:
+bin:x:2:
+N 5

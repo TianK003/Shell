@@ -1,0 +1,7 @@
+waitone
+status
+
+hostname &
+echo background
+waitone
+echo check

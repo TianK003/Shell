@@ -1,0 +1,7 @@
+hostname &
+sleep 1 &
+arch &
+sleep 1 &
+uname &
+waitall
+echo last one

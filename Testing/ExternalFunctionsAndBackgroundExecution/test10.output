@@ -1,0 +1,4 @@
+runTest.py
+shell.c
+shell.exe
+lrwxrwxrwx 1 root root 8 Feb 10  2023 /sbin -> usr/sbin/

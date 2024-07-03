@@ -1,0 +1,10 @@
+mkdir 42
+dirch 42
+mkdir 1 2 3
+dirls
+rmdir 2
+ls
+dirrm 3
+ls
+rmdir 1
+dirls

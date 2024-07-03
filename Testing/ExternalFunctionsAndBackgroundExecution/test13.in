@@ -1,0 +1,9 @@
+dirmk / &
+waitone
+status
+
+echo
+
+exit 42 &
+waitone
+status

@@ -1,0 +1,14 @@
+proc
+status
+
+proc non-existent
+status
+
+proc
+status
+
+proc procdirs/proc-1
+status
+
+proc
+status

@@ -1,0 +1,14 @@
+proc procdirs/proc-1
+status
+
+echo
+pids
+status
+
+echo
+pids
+status
+
+echo
+pids
+status
