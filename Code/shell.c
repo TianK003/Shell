@@ -10,10 +10,11 @@
 #include <fcntl.h>
 #include <sys/utsname.h>
 #include <sys/wait.h>
+#include <signal.h>
 
 #define MAX_INPUT_LEN 512
 #define MAX_TOKENS 64
-#define NO_INTERNAL_COMMANDS 35
+#define NO_INTERNAL_COMMANDS 37
 // ta tabela ima vhodno vrstico
 char line[MAX_INPUT_LEN];
 char zaPrint[MAX_INPUT_LEN];
@@ -25,7 +26,6 @@ int tokenCount = 0;
 // spremlja debug nivo
 int debugLevel = 0;
 int izpisiDebugLevel = 0;
-
 // ce se izvaja v ospredju je 0, ce v ozadju je 1
 int background = 0;
 char shellName[9];
@@ -34,7 +34,8 @@ int zadnjiStatus = 0;
 int isExternal = 0;
 // da ves kako printat
 int jePrimerenDebug = 1;
-char *interniUkazi[] = {"debug", "exit", "help", "prompt", "status", "print", "echo", "len", "sum", "calc", "basename", "dirname", "dirch", "dirwd", "dirmk", "dirrm", "dirls", "rename", "unlink", "remove", "linkhard", "linksoft", "linkread", "linklist", "cpcat", "pid", "ppid", "uid", "euid", "gid", "egid", "sysinfo", "proc", "pids", "pinfo"};
+char *interniUkazi[] = {"debug", "exit", "help", "prompt", "status", "print", "echo", "len", "sum", "calc", "basename", "dirname", "dirch", "dirwd", "dirmk", "dirrm", "dirls", "rename", "unlink", "remove", "linkhard", "linksoft", "linkread", "linklist", "cpcat", "pid", "ppid", "uid", "euid", "gid", "egid", "sysinfo", "proc", "pids", "pinfo", "waitone", "waitall"};
+
 int previousDebugLevel = 0;
 // da ves ce interaktivno izvajas
 int native = 0;
@@ -45,17 +46,10 @@ int spremeniNazajNaNic = 0;
 void printToken() {
     int j = 0;
     for (int i = 0; i < tokenCount; i++) {
-            printf("Token %d: '%s'\n", j, line + tokens[i]);
-            j++;
-            if (i == 0 && debugLevel > 0 && strcmp(line + tokens[i], "debug") == 0 && jePrimerenDebug == 1) i++;
+        printf("Token %d: '%s'\n", j, line + tokens[i]);
+        j++;
+        if (i == 0 && debugLevel > 0 && strcmp(line + tokens[i], "debug") == 0 && jePrimerenDebug == 1) i++;
     }
-}
-
-void printInputLine() {
-    if (debugLevel > 0) {
-        printf("Input line: '%s'\n", zaPrint);
-        printToken();
-    }    
 }
 
 void redirect() {
@@ -101,6 +95,10 @@ void pripraviInput() {
         if (line[i] == '\n') line[i] = '\0';
         if (line[i] == '\r') line[i] = '\0';
         zaPrint[i] = line[i];
+    }
+
+    if (debugLevel > 0) {
+        printf("Input: '%s'\n", zaPrint);
     }
 }
 
@@ -150,13 +148,19 @@ void tokenize() {
             tokenCount++;
         }
     }
-}
+    if (strcmp(line + tokens[tokenCount - 1], "&") == 0) {
+        background = 1;
+    }
+    else background = 0;
 
-void debug() {
+    if (debugLevel > 0) {
+        printToken();
+    }
+}   
+
+void debug_builtin() {
     // samo izpises trenutni debug level
     if (tokenCount == 1) {
-        printInputLine();
-        redirect();
         izpisiDebugLevel = 1;
     } 
     // spreminjas ali pa tudi ne
@@ -166,8 +170,6 @@ void debug() {
             jePrimerenDebug = 0;
             // zacasno spremeni debugLevel na 1, da izpise debugLevel
             debugLevel = 1;
-            printInputLine();
-            redirect();
             spremeniNazajNaNic = 1;
         }
         else {
@@ -178,10 +180,11 @@ void debug() {
     zadnjiStatus = 0;
 }
 
-void izhod_builtin() {
+void exit_builtin() {
     if (tokenCount == 2) {
         zadnjiStatus = atoi(line + tokens[1]);
     }
+    fflush(stdout);
     exit(zadnjiStatus);
 }
 
@@ -222,7 +225,9 @@ void help_builtin() {
     printf("- \033[0;32mproc [pot]\033[0m nastavitev poti do procfs datotecnega sistema. Ce argument ni podan, se izpise trenutna nastavljena pot.\n");
     printf("- \033[0;32mpids\033[0m izpise PID-e vseh procesov v procfs.\n");
     printf("- \033[0;32mpinfo \033[0m izpise informacije o trenutnih procesih (PID, PPID, STANJE, IME), ki jih pridobi iz datoteke stat v procfs.\n");
-    printf("\n\033[0;33mOpozorilo\033[0m Ostali ukazi so zunanji in se niso implementirani. Pocakati boste morali na naslednjo nadgradnjo te naloge.\n");
+    printf("- \033[0;32mwaitone [pid]\033[0m pocaka na zakljucitev procesa s PID [pid]. V kolikor pid ni podan, se pocaka na prvega.\n");
+    printf("- \033[0;32mwaitall\033[0m pocaka na zakljucitev vseh procesov, ki se izvajajo v ozadju.\n");
+    printf("\n\033[0;33mOpozorilo\033[0m Ostali ukazi so zunanji in njihovo obnasanje ni poznano je odvisno od posameznih ukazov. S previdnostjo izvajajte zunanje ukaze!\n");
     zadnjiStatus = 0;
 }
 
@@ -336,6 +341,7 @@ void dirname_builtin() {
 }
 
 void status_builtin() {
+    fflush(stdout);
     printf("%d\n", zadnjiStatus);
 }
 
@@ -345,9 +351,8 @@ void dirch_builtin() {
     }
     else {
         if (chdir(line + tokens[1]) == -1) {
-            fflush(stdout);
-            fprintf(stderr, "dirch: %s\n", strerror(errno));
-            zadnjiStatus = errno;\
+            zadnjiStatus = errno;
+            perror("dirch");
             return;
         }
     }
@@ -370,9 +375,8 @@ void dirwd_builtin() {
 
 void dirmk_builtin() {
     if (mkdir(line + tokens[1], 0777) == -1) {
-        fflush(stdout);
-        fprintf(stderr, "dirmk: %s\n", strerror(errno));
         zadnjiStatus = errno;
+        perror("dirmk");
         return;
     }
     zadnjiStatus = 0;
@@ -380,9 +384,8 @@ void dirmk_builtin() {
 
 void dirrm_builtin() {
     if (rmdir(line + tokens[1]) == -1) {
-        fflush(stdout);
         zadnjiStatus = errno;
-        fprintf(stderr, "dirrm: %s\n", strerror(errno));
+        perror("dirrm");
         return;
     }
     zadnjiStatus = 0;
@@ -398,15 +401,12 @@ void dirls_builtin() {
         dir = opendir(line + tokens[1]);
     }
     if (dir == NULL) {
-        fflush(stdout);
         zadnjiStatus = errno;
-        fprintf(stderr, "dirrm: %s\n", strerror(errno));
-        zadnjiStatus = errno;
+        perror("dirls");
         return;
     }
     while ((entry = readdir(dir)) != NULL) {
         printf("%s  ", entry->d_name);
-        fflush(stdout);
     }
     printf("\n");
     closedir(dir);
@@ -415,9 +415,8 @@ void dirls_builtin() {
 
 void rename_builtin() {
     if (rename(line + tokens[1], line + tokens[2]) == -1) {
-        fflush(stdout);
         zadnjiStatus = errno;
-        fprintf(stderr, "rename: %s\n", strerror(errno));
+        perror("rename");
         return;
     }
     zadnjiStatus = 0;
@@ -425,9 +424,8 @@ void rename_builtin() {
 
 void unlink_builtin() {
     if (unlink(line + tokens[1]) == -1) {
-        fflush(stdout);
         zadnjiStatus = errno;
-        fprintf(stderr, "unlink: %s\n", strerror(errno));
+        perror("unlink");
         return;
     }
     zadnjiStatus = 0;
@@ -435,9 +433,8 @@ void unlink_builtin() {
 
 void remove_builtin() {
     if (remove(line + tokens[1]) == -1) {
-        fflush(stdout);
         zadnjiStatus = errno;
-        fprintf(stderr, "remove: %s\n", strerror(errno));
+        perror("remove");
         return;
     }
     zadnjiStatus = 0;
@@ -445,9 +442,8 @@ void remove_builtin() {
 
 void linkhard_builtin() {
     if (link(line + tokens[1], line + tokens[2]) == -1) {
-        fflush(stdout);
         zadnjiStatus = errno;
-        fprintf(stderr, "linkhard: %s\n", strerror(errno));
+        perror("linkhard");
         return;
     }
     zadnjiStatus = 0;
@@ -455,9 +451,8 @@ void linkhard_builtin() {
 
 void linksoft_builtin() {
     if (symlink(line + tokens[1], line + tokens[2]) == -1) {
-        fflush(stdout);
         zadnjiStatus = errno;
-        fprintf(stderr, "linksoft: %s\n", strerror(errno));
+        perror("linksoft");
         return;
     }
     zadnjiStatus = 0;
@@ -472,9 +467,8 @@ void linkread_builtin() {
         buf[len] = '\0';
         printf("%s\n", buf);
     } else {
-        fflush(stdout);
         zadnjiStatus = errno;
-        fprintf(stderr, "linkread: %s\n", strerror(errno));
+        perror("linkread");
         return;
     }
     zadnjiStatus = 0;
@@ -485,25 +479,22 @@ void linklist_builtin() {
     struct dirent *dp;
     DIR *dir = opendir(".");
     if (!dir) {
-        fflush(stdout);
         zadnjiStatus = errno;
-        fprintf(stderr, "opendir: %s\n", strerror(errno));
+        perror("opendir");
         return;
     }
 
     struct stat openedFileHardLinkValue, argHardLinkValue;
     if (lstat(ime, &argHardLinkValue) == -1) {
-        fflush(stdout);
         zadnjiStatus = errno;
-        fprintf(stderr, "lstat: %s\n", strerror(errno));
+        perror("lstat");
         return;
     }
 
     while ((dp = readdir(dir)) != NULL) {
         if (lstat(dp->d_name, &openedFileHardLinkValue) == -1) {
-            fflush(stdout);
             zadnjiStatus = errno;
-            fprintf(stderr, "lstat: %s\n", strerror(errno));
+            perror("lstat");
             return;
         }
         if (openedFileHardLinkValue.st_ino == argHardLinkValue.st_ino) {
@@ -523,15 +514,13 @@ void kopiraj(int input, int output) {
 }
 
 void cpcat_builtin() {
-    fflush(stdout);
     if (tokenCount == 1) kopiraj(STDIN_FILENO, STDOUT_FILENO);
     else if (tokenCount == 2)
     {
         int vhod = open(line + tokens[1], O_CREAT | O_RDONLY, 0644);
         if (vhod == -1) {
-            fflush(stdout);
             zadnjiStatus = errno;
-            fprintf(stderr, "cpcat: %s\n", strerror(errno));
+            perror("cpcat");
             return;
         }
         kopiraj(vhod, STDOUT_FILENO);
@@ -541,9 +530,8 @@ void cpcat_builtin() {
         int vhod = strcmp(line + tokens[1], "-") ? open(line + tokens[1], O_RDONLY, 0644) : STDIN_FILENO;
         int izhod = open(line + tokens[2], O_CREAT | O_WRONLY, 0644);
         if (vhod == -1 || izhod == -1) {
-            fflush(stdout);
             zadnjiStatus = errno;
-            fprintf(stderr, "cpcat: %s\n", strerror(errno));
+            perror("cpcat");
             return;
         }
         kopiraj(vhod, izhod);
@@ -581,13 +569,11 @@ void egid_builtin() {
     zadnjiStatus = 0;
 }
 
-// za pomoc s klicem uname glej: https://man7.org/linux/man-pages/man2/uname.2.html
 void sysinfo_builtin() {
     struct utsname uts;
     if (uname(&uts) == -1) {
-        fflush(stdout);
         zadnjiStatus = errno;
-        fprintf(stderr, "sysinfo: %s\n", strerror(errno));
+        perror("sysinfo");
         return;
     }
     printf("Sysname: %s\nNodename: %s\nRelease: %s\nVersion: %s\nMachine: %s\n", uts.sysname, uts.nodename, uts.release, uts.version, uts.machine);
@@ -636,20 +622,17 @@ void sortirajProcese(int *pids, int stProcesov, int pinfo) {
             snprintf(pot, sizeof(pot), "%s/%d/stat", proc_path, pids[i]);
             FILE *stat = fopen(pot, "r");
             if (stat == NULL) {
-                fflush(stdout);
                 zadnjiStatus = errno;
-                fprintf(stderr, "opening stat: %s\n", strerror(errno));
+                perror("fopen");
                 return;
             }
             // te zacetni podakti ne bi smeli bit daljsi od tega - ze to je ful prevec
             char vsebina[512];
             if (fgets(vsebina, sizeof(vsebina), stat) != NULL) {
-                
                 sscanf(vsebina, "%d %s %c %d", &pid, ime, &stanje, &ppid);
             } else {
-                fflush(stdout);
                 zadnjiStatus = errno;
-                fprintf(stderr, "reading stat: %s\n", strerror(errno));
+                perror("fgets");
                 return;
             }
             // zadnji oklepaj odstrani, sprednjega pa ne izpisi
@@ -666,9 +649,8 @@ void pids_builtin() {
     int stProcesov = 0;
     proc_dir = opendir(proc_path);
     if (proc_dir == NULL) {
-        fflush(stdout);
         zadnjiStatus = errno;
-        fprintf(stderr, "pids: %s\n", strerror(errno));
+        perror("pids");
         return;
     } 
     while ((proces = readdir(proc_dir)) != NULL) {
@@ -678,7 +660,7 @@ void pids_builtin() {
     }
     int shraniStProcesov = stProcesov;
     closedir(proc_dir);
-    int *pids = (int *)malloc(stProcesov * sizeof(int));
+    int *pids = (int *) malloc(stProcesov * sizeof(int));
     proc_dir = opendir(proc_path);
     while ((proces = readdir(proc_dir)) != NULL) {
             if (isdigit(proces->d_name[0])) {
@@ -696,9 +678,8 @@ void pinfo_builtin() {
     int stProcesov = 0;
     proc_dir = opendir(proc_path);
     if (proc_dir == NULL) {
-        fflush(stdout);
         zadnjiStatus = errno;
-        fprintf(stderr, "pids: %s\n", strerror(errno));
+        perror("pinfo");
         return;
     } 
     while ((proces = readdir(proc_dir)) != NULL) {
@@ -719,198 +700,92 @@ void pinfo_builtin() {
     zadnjiStatus = 0;
 }
 
-void execute_builtin(int ukaz) {
-    if (line[tokens[tokenCount]] == '&') {
-        background = 1;
-    }
-    else background = 0;
-
-    switch (ukaz) {
-        case 0:
-            // posebna funkcija
-            debug();
-            break;
-        case 1:
-            izhod_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 2:
-            help_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 3:
-            prompt_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 4:
-            status_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 5:
-            print_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 6:
-            echo_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 7:
-            len_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 8:
-            sum_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 9:
-            calc_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 10:
-            basename_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 11:
-            dirname_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 12:
-            dirch_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 13:
-            dirwd_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 14:
-            dirmk_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 15:
-            dirrm_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 16:
-            dirls_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 17:
-            rename_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 18:
-            unlink_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 19:
-            remove_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 20:
-            linkhard_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 21:
-            linksoft_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 22:
-            linkread_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 23:
-            linklist_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 24:
-            cpcat_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 25:
-            pid_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 26:
-            ppid_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 27:
-            uid_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 28:
-            euid_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 29:
-            gid_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 30:
-            egid_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 31:
-            sysinfo_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 32:
-            proc_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 33:
-            pids_builtin();
-            printInputLine();
-            redirect();
-            break;
-        case 34:
-            pinfo_builtin();
-            printInputLine();
-            redirect();
-            break;
-        default:
-            printf("Napaka pri prepoznavanju internega ukaza! Do sem ne bi smel priti.\n");
-            break;
+void waitone_builtin() {
+    int status, pid;
+    if (tokenCount == 1) {
+        pid = wait(&status);
+        if (pid == -1) {
+            zadnjiStatus = 0;
+            return;
+        }
+        zadnjiStatus = WEXITSTATUS(status);
+        
+    } else {
+        pid = atoi(line + tokens[1]);
+        if (kill(pid, 0) == -1) {
+            zadnjiStatus = 0;
+            return;
+        }
+        waitpid(pid, &status, 0);
+        zadnjiStatus = WEXITSTATUS(status);
     }
 }
 
-int find_builtin() {
+void waitall_builtin() {
+    int status, pid;
+    while (1) {
+        pid = wait(&status);
+        if (pid == -1) {
+            break;
+        }
+    }
+    zadnjiStatus = 0;
+}
+
+void (*pFunkcije[]) () = {debug_builtin, exit_builtin, help_builtin, prompt_builtin, status_builtin, print_builtin, echo_builtin, len_builtin, sum_builtin, calc_builtin, basename_builtin, dirname_builtin, dirch_builtin, dirwd_builtin, dirmk_builtin, dirrm_builtin, dirls_builtin, rename_builtin, unlink_builtin, remove_builtin, linkhard_builtin, linksoft_builtin, linkread_builtin, linklist_builtin, cpcat_builtin, pid_builtin, ppid_builtin, uid_builtin, euid_builtin, gid_builtin, egid_builtin, sysinfo_builtin, proc_builtin, pids_builtin, pinfo_builtin, waitone_builtin, waitall_builtin};
+
+void execute_builtin(int ukaz) {
+    if (!background) {
+        pFunkcije[ukaz]();
+    }
+    else {
+        fflush(stdin);
+        int pid = fork();
+        if (pid == -1) {
+            zadnjiStatus = errno;
+            perror("fork");
+            return;
+        } else if (pid == 0) {
+            pFunkcije[ukaz]();
+            exit(zadnjiStatus);
+        }
+    }
+}
+
+void execute_external() {
+    isExternal = 1;
+    char *zetoni[tokenCount + 1];
+    for (int i = 0; i < tokenCount; i++) {
+        zetoni[i] = line + tokens[i];
+    }
+    zetoni[tokenCount] = NULL;
+    fflush(stdin);
+    int pid = fork();
+    if (pid == -1) {
+        zadnjiStatus = errno;
+        perror("fork");
+        return;
+    } else if (pid == 0) {
+        execvp(zetoni[0], zetoni);
+        // ce se vrne je napaka
+        perror("exec"); 
+        zadnjiStatus = 127;
+        exit(zadnjiStatus);
+    } else {
+        if (!background) {
+            int status;
+            waitpid(pid, &status, 0);
+            if (WIFEXITED(status)) {
+                zadnjiStatus = WEXITSTATUS(status);
+            }
+        }
+    }
+}
+
+void find_builtin() {
     for (int i = 0; i < NO_INTERNAL_COMMANDS; i++) {
         if (strcmp(line + tokens[0], interniUkazi[i]) == 0) {
             isExternal = 0;
-            execute_builtin(i);
             // mal grdo hendlanje debugga, ampak deluje
             if (debugLevel > 0 && previousDebugLevel > 0) {
                 printf("Executing builtin '%s' in %s\n", interniUkazi[i], background ? "background" : "foreground" );
@@ -924,47 +799,28 @@ int find_builtin() {
             if (i == 0 && izpisiDebugLevel) {
                 printf("%d\n", debugLevel);
             }
-            return 1;
+            execute_builtin(i);
+            return;
         }
     }
-    return 0;
+    execute_external();
 }
 
-void execute_external() {
-    isExternal = 1;
-    
-    if (strcmp(line + tokens[tokenCount], "&") == 0) {
-        background = 1;
+// prepisano iz vaj
+void handle_sigchld (int signum)
+{
+    int pid, status, serrno;
+    serrno = errno;
+    while (1) {
+        pid = waitpid(WAIT_ANY, &status, WNOHANG);
+        if (pid < 0) {
+                break;
+        }
+        if (pid == 0) {
+            break;
+        }
     }
-    else background = 0;
-    char *zetoni[tokenCount + 1];
-    for (int i = 0; i < tokenCount; i++) {
-        zetoni[i] = line + tokens[i];
-    }
-    zetoni[tokenCount] = NULL;
-    fflush(stdin);
-    pid_t pid = fork();
-    if (pid == -1) {
-        fflush(stdout);
-        zadnjiStatus = errno;
-        fprintf(stderr, "pid: %s\n", strerror(errno));
-        return;
-    } else if (pid == 0) {
-        execvp(zetoni[0], zetoni);
-        // ce se vrne je napaka
-        fflush(stdout);
-        fprintf(stderr, "exec: %s\n", strerror(errno));
-        zadnjiStatus = 127;
-        return;
-    } else {
-        int status;
-        waitpid(pid, &status, 0);
-        if (WIFEXITED(status)) {
-            zadnjiStatus = WEXITSTATUS(status);
-        }     
-    }
-    printInputLine();
-    redirect();
+    errno = serrno;
 }
 
 int main(int argc, char *argv[]) {
@@ -972,19 +828,19 @@ int main(int argc, char *argv[]) {
     strcpy(shellName, "mysh");
     if (native) printf("%s> ", shellName);
     strcpy(proc_path, "/proc");
+    signal(SIGCHLD, handle_sigchld);
 
     while (fgets(line, sizeof(line), stdin) != NULL) {
+        fflush(stdout);
+        fflush(stderr);
         pripraviInput();
         tokenize();
         if (tokenCount == 0) {
             if (native) { printf("%s> ", shellName); }
             continue;
         }
-        background = 0;
-        // poisci ukaz
-        if (find_builtin() == 0) {
-            execute_external();
-        }
+        redirect();
+        find_builtin();
         // sprazni input line, da ni problemov pri naslednjem branju
         for (int i = 0; i < MAX_INPUT_LEN; i++) {
             line[i] = '\0';
@@ -998,9 +854,6 @@ int main(int argc, char *argv[]) {
         if (native) {
             printf("%s> ", shellName);
         }
-        fflush(stdin);
-        fflush(stdout);
-        fflush(stderr);
     }
     return zadnjiStatus;
 }
