@@ -9,6 +9,7 @@
 #include <sys/types.h>
 #include <fcntl.h>
 #include <sys/utsname.h>
+#include <sys/wait.h>
 
 #define MAX_INPUT_LEN 512
 #define MAX_TOKENS 64
@@ -61,27 +62,27 @@ void redirect() {
     int count = tokenCount;
     //printf("tokencount je %d\n", tokenCount);
     for (int i = 0; i < count; i++) {
-        char beseda = line[tokens[i]];
-        if (beseda == '>') {
+        char* beseda = line + tokens[i];
+        if (beseda[0] == '>') {
             tokenCount--;
             if (debugLevel > 0) printf("Output redirect: '%s'\n", line + tokens[i] + 1);
         }
-        else if (beseda == '<') {
+        else if (beseda[0] == '<') {
             tokenCount--;
             if (debugLevel > 0) printf("Input redirect: '%s'\n", line + tokens[i] + 1);
         }
-        else if (beseda == '&') {
+        else if (strcmp(beseda, "&") == 0) {
             tokenCount--;
             background = 1;
             if (debugLevel > 0) printf("Background: '%d'\n", background);
         }
     }
-    //printf("tokencount je %d\n", tokenCount);
     
     // posebej obravnavam ce je zunanji ukaz
-    if (isExternal) {
-        printf("External command '");
-        for (int i = 0; i < tokenCount; i++) {
+    if (isExternal && debugLevel > 0) {
+        printf("Executing external '%s' in %s\n", line + tokens[0], background ? "background" : "foreground" );
+        printf("With the arguments:\n");
+        for (int i = 1; i < tokenCount; i++) {
             if (i != tokenCount-1) {
                 printf("%s ", line + tokens[i]);
             }
@@ -89,7 +90,7 @@ void redirect() {
                 printf("%s", line + tokens[i]);
             }
         }
-        printf("'\n");
+        printf("\n");
         return;
     }
     else return;
@@ -152,7 +153,6 @@ void tokenize() {
 }
 
 void debug() {
-    previousDebugLevel = debugLevel;
     // samo izpises trenutni debug level
     if (tokenCount == 1) {
         printInputLine();
@@ -919,6 +919,7 @@ int find_builtin() {
                     spremeniNazajNaNic = 0;
                 }
             }
+            previousDebugLevel = debugLevel;
             // izpisuje debug level
             if (i == 0 && izpisiDebugLevel) {
                 printf("%d\n", debugLevel);
@@ -931,6 +932,37 @@ int find_builtin() {
 
 void execute_external() {
     isExternal = 1;
+    
+    if (strcmp(line + tokens[tokenCount], "&") == 0) {
+        background = 1;
+    }
+    else background = 0;
+    char *zetoni[tokenCount + 1];
+    for (int i = 0; i < tokenCount; i++) {
+        zetoni[i] = line + tokens[i];
+    }
+    zetoni[tokenCount] = NULL;
+    fflush(stdin);
+    pid_t pid = fork();
+    if (pid == -1) {
+        fflush(stdout);
+        zadnjiStatus = errno;
+        fprintf(stderr, "pid: %s\n", strerror(errno));
+        return;
+    } else if (pid == 0) {
+        execvp(zetoni[0], zetoni);
+        // ce se vrne je napaka
+        fflush(stdout);
+        fprintf(stderr, "exec: %s\n", strerror(errno));
+        zadnjiStatus = 127;
+        return;
+    } else {
+        int status;
+        waitpid(pid, &status, 0);
+        if (WIFEXITED(status)) {
+            zadnjiStatus = WEXITSTATUS(status);
+        }     
+    }
     printInputLine();
     redirect();
 }
@@ -948,6 +980,7 @@ int main(int argc, char *argv[]) {
             if (native) { printf("%s> ", shellName); }
             continue;
         }
+        background = 0;
         // poisci ukaz
         if (find_builtin() == 0) {
             execute_external();
@@ -965,6 +998,9 @@ int main(int argc, char *argv[]) {
         if (native) {
             printf("%s> ", shellName);
         }
+        fflush(stdin);
+        fflush(stdout);
+        fflush(stderr);
     }
     return zadnjiStatus;
 }
