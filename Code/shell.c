@@ -30,8 +30,6 @@ int izpisiDebugLevel = 0;
 int background = 0;
 char shellName[9];
 int zadnjiStatus = 0;
-// da ves ce je ukaz zunanji
-int isExternal = 0;
 // da ves kako printat
 int jePrimerenDebug = 1;
 char *interniUkazi[] = {"debug", "exit", "help", "prompt", "status", "print", "echo", "len", "sum", "calc", "basename", "dirname", "dirch", "dirwd", "dirmk", "dirrm", "dirls", "rename", "unlink", "remove", "linkhard", "linksoft", "linkread", "linklist", "cpcat", "pid", "ppid", "uid", "euid", "gid", "egid", "sysinfo", "proc", "pids", "pinfo", "waitone", "waitall"};
@@ -41,7 +39,10 @@ int previousDebugLevel = 0;
 int native = 0;
 // posebej za debuganje, da se izpise vse kot mora
 int spremeniNazajNaNic = 0;
-
+char *inputRedirect = NULL;
+char *outputRedirect = NULL;
+int stdinOriginal;
+int stdoutOriginal;
 // izpise vhod, tokene in redirecte
 void printToken() {
     int j = 0;
@@ -59,11 +60,13 @@ void redirect() {
         char* beseda = line + tokens[i];
         if (beseda[0] == '>') {
             tokenCount--;
-            if (debugLevel > 0) printf("Output redirect: '%s'\n", line + tokens[i] + 1);
+            outputRedirect = beseda + 1;
+            if (debugLevel > 0) printf("Output redirect: '%s'\n", beseda + 1);
         }
         else if (beseda[0] == '<') {
             tokenCount--;
-            if (debugLevel > 0) printf("Input redirect: '%s'\n", line + tokens[i] + 1);
+            inputRedirect = beseda + 1;
+            if (debugLevel > 0) printf("Input redirect: '%s'\n", beseda + 1);
         }
         else if (strcmp(beseda, "&") == 0) {
             tokenCount--;
@@ -71,23 +74,6 @@ void redirect() {
             if (debugLevel > 0) printf("Background: '%d'\n", background);
         }
     }
-    
-    // posebej obravnavam ce je zunanji ukaz
-    if (isExternal && debugLevel > 0) {
-        printf("Executing external '%s' in %s\n", line + tokens[0], background ? "background" : "foreground" );
-        printf("With the arguments:\n");
-        for (int i = 1; i < tokenCount; i++) {
-            if (i != tokenCount-1) {
-                printf("%s ", line + tokens[i]);
-            }
-            else {
-                printf("%s", line + tokens[i]);
-            }
-        }
-        printf("\n");
-        return;
-    }
-    else return;
 }
 
 void pripraviInput() {
@@ -736,7 +722,42 @@ void (*pFunkcije[]) () = {debug_builtin, exit_builtin, help_builtin, prompt_buil
 
 void execute_builtin(int ukaz) {
     if (!background) {
+        stdinOriginal = dup(STDIN_FILENO);
+        stdoutOriginal = dup(STDOUT_FILENO);
+        fflush(stdout);
+        // naredi preusmeritve
+        if (inputRedirect != NULL) {
+            int input = open(inputRedirect, O_RDONLY, 0644);
+            if (input == -1) {
+                zadnjiStatus = errno;
+                perror("open");
+                return;
+            }
+            dup2(input, STDIN_FILENO);
+            close(input);
+        }
+        
+        if (outputRedirect != NULL) {
+            int output = open(outputRedirect, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+            if (output == -1) {
+                zadnjiStatus = errno;
+                perror("open");
+                return;
+            }
+            dup2(output, STDOUT_FILENO);
+            close(output);
+        }
         pFunkcije[ukaz]();
+
+        fflush(stdout);
+        if (inputRedirect != NULL) {
+            dup2(stdinOriginal, STDIN_FILENO);
+            close(stdinOriginal);
+        }
+        if (outputRedirect != NULL) {
+            dup2(stdoutOriginal, STDOUT_FILENO);
+            close(stdoutOriginal);
+        }
     }
     else {
         fflush(stdin);
@@ -746,6 +767,28 @@ void execute_builtin(int ukaz) {
             perror("fork");
             return;
         } else if (pid == 0) {
+            // naredi preusmeritve
+            if (inputRedirect != NULL) {
+                int input = open(inputRedirect, O_RDONLY, 0644);
+                if (input == -1) {
+                    zadnjiStatus = errno;
+                    perror("open");
+                    return;
+                }
+                dup2(input, STDIN_FILENO);
+                close(input);
+            }
+            
+            if (outputRedirect != NULL) {
+                int output = open(outputRedirect, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+                if (output == -1) {
+                    zadnjiStatus = errno;
+                    perror("open");
+                    return;
+                }
+                dup2(output, STDOUT_FILENO);
+                close(output);
+            }
             pFunkcije[ukaz]();
             exit(zadnjiStatus);
         }
@@ -753,19 +796,42 @@ void execute_builtin(int ukaz) {
 }
 
 void execute_external() {
-    isExternal = 1;
+    if (debugLevel > 0) printf("Executing external '%s' in %s\n", line + tokens[0], background ? "background" : "foreground" );
     char *zetoni[tokenCount + 1];
     for (int i = 0; i < tokenCount; i++) {
         zetoni[i] = line + tokens[i];
     }
     zetoni[tokenCount] = NULL;
+
     fflush(stdin);
     int pid = fork();
     if (pid == -1) {
         zadnjiStatus = errno;
         perror("fork");
-        return;
+        return;    
     } else if (pid == 0) {
+        // naredi preusmeritve
+        if (inputRedirect != NULL) {
+            int input = open(inputRedirect, O_RDONLY, 0644);
+            if (input == -1) {
+                zadnjiStatus = errno;
+                perror("open");
+                return;
+            }
+            dup2(input, STDIN_FILENO);
+            close(input);
+        }
+        
+        if (outputRedirect != NULL) {
+            int output = open(outputRedirect, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+            if (output == -1) {
+                zadnjiStatus = errno;
+                perror("open");
+                return;
+            }
+            dup2(output, STDOUT_FILENO);
+            close(output);
+        }
         execvp(zetoni[0], zetoni);
         // ce se vrne je napaka
         perror("exec"); 
@@ -785,7 +851,6 @@ void execute_external() {
 void find_builtin() {
     for (int i = 0; i < NO_INTERNAL_COMMANDS; i++) {
         if (strcmp(line + tokens[0], interniUkazi[i]) == 0) {
-            isExternal = 0;
             // mal grdo hendlanje debugga, ampak deluje
             if (debugLevel > 0 && previousDebugLevel > 0) {
                 printf("Executing builtin '%s' in %s\n", interniUkazi[i], background ? "background" : "foreground" );
@@ -854,6 +919,8 @@ int main(int argc, char *argv[]) {
         if (native) {
             printf("%s> ", shellName);
         }
+        inputRedirect = NULL;
+        outputRedirect = NULL;
     }
     return zadnjiStatus;
 }
