@@ -1,8 +1,7 @@
 Sysname: Linux
 Nodename: DESKTOP-1H9OKN9
-Release: 5.15.153.1-microsoft-standard-WSL2 
+Release: 5.15.153.1-microsoft-standard-WSL2
 Version: #1 SMP Fri Mar 29 23:14:13 UTC 2024
 Machine: x86_64
-997
+1000
 /proc
-
