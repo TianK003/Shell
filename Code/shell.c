@@ -11,10 +11,12 @@
 #include <sys/utsname.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <readline/readline.h>
+#include <readline/history.h>
 
 #define MAX_INPUT_LEN 512
 #define MAX_TOKENS 64
-#define NO_INTERNAL_COMMANDS 38
+#define NO_INTERNAL_COMMANDS 41
 
 void parse();
 void waitall_builtin();
@@ -23,119 +25,38 @@ void find_builtin();
 char line[MAX_INPUT_LEN];
 char zaPrint[MAX_INPUT_LEN];
 char proc_path[MAX_INPUT_LEN];
-// v to tabelo si hranim samo indekse, kjer se zacnejo besede
-int tokens[MAX_TOKENS];
-// to pa so dejanski zetoni
-char *zetoni[MAX_TOKENS + 1];
+
+// tokeni uporabljeni za vse
+char *zetoni[MAX_TOKENS];
 // si belezim koliko tokenov sem nasel
 int tokenCount = 0;
 // spremlja debug nivo
 int debugLevel = 0;
-int izpisiDebugLevel = 0;
 // ce se izvaja v ospredju je 0, ce v ozadju je 1
 int background = 0;
 char shellName[9];
 int zadnjiStatus = 0;
-// da ves kako printat
-int jePrimerenDebug = 1;
-char *interniUkazi[] = {"debug", "exit", "help", "prompt", "status", "print", "echo", "len", "sum", "calc", "basename", "dirname", "dirch", "dirwd", "dirmk", "dirrm", "dirls", "rename", "unlink", "remove", "linkhard", "linksoft", "linkread", "linklist", "cpcat", "pid", "ppid", "uid", "euid", "gid", "egid", "sysinfo", "proc", "pids", "pinfo", "waitone", "waitall", "pipes"};
+
+char *interniUkazi[] = {"debug", "exit", "help", "prompt", "status", "print", "echo", "len", "sum", "calc", "basename", "dirname", "dirch", "dirwd", "dirmk", "dirrm", "dirls", "rename", "unlink", "remove", "linkhard", "linksoft", "linkread", "linklist", "cpcat", "pid", "ppid", "uid", "euid", "gid", "egid", "sysinfo", "proc", "pids", "pinfo", "waitone", "waitall", "pipes", "count", "time", "regex"};
 
 int previousDebugLevel = 0;
 // da ves ce interaktivno izvajas
 int native = 0;
-// posebej za debuganje, da se izpise vse kot mora
-int spremeniNazajNaNic = 0;
 char *inputRedirect = NULL;
 char *outputRedirect = NULL;
 int stdinOriginal;
 int stdoutOriginal;
 
 // za pipeline
-char* zetoniPipeline[MAX_TOKENS + 1];
+char* zetoniPipeline[MAX_TOKENS];
 char *shraniZetone[MAX_TOKENS];
 
-// izpise vhod, tokene in redirecte
-void printToken() {
-    for (int i = 0; i < tokenCount; i++) {
-        printf("Token %d: '%s'\n", i, zetoni[i]);
-    }
-}
-
-void pripraviInput() {
-    for (int i = 0; i < MAX_INPUT_LEN; i++) {
-        if (line[i] == '\n') line[i] = '\0';
-        if (line[i] == '\r') line[i] = '\0';
-        zaPrint[i] = line[i];
-    }
-
-    if (debugLevel > 0) {
-        printf("Input: '%s'\n", zaPrint);
-    }
-}
-
-// najde indekse tokenov v vhodu
-void tokenize() {
-    int isciPrvega = 1;
-    int jeVNarekovajih = 0;
-    for (int i = 0; i < MAX_INPUT_LEN; i++) {
-        // naleteli smo na komentar, lahko zakljucimo s to vrstico
-        if (line[i] == '#' && jeVNarekovajih == 0 && isciPrvega == 1) {
-            for (int j = i; j < MAX_INPUT_LEN; j++) {
-                line[j] = '\0';
-            }
-            break;
-        }
-
-        // ce je konec vrstice, prekini
-        if (line[i] == '\0') break;
-        // ce je presledek, ga zamenjaj z '\0' in povecaj stevilo tokenov
-        if (line[i] == ' ' && jeVNarekovajih == 0) {
-            line[i] = '\0';
-            isciPrvega = 1;
-            continue;
-        }
-        else if (isspace(line[i]) && jeVNarekovajih == 0) {
-            line[i] = '\0';
-            isciPrvega = 1;
-            continue;
-        }
-
-        // to pomeni da smo drugic srecali narekovaje
-        if (line[i] == '"' && jeVNarekovajih == 1) {
-            jeVNarekovajih = 0;
-            line[i] = '\0';
-            continue;
-        }
-
-        // prvi preverja presledke
-        if (isciPrvega && !isspace(line[i])){
-            tokens[tokenCount] = i;
-            isciPrvega = 0;
-            // prvic smo se srecali z narekovaji
-            if (line[i] == '"' && jeVNarekovajih == 0) {
-                jeVNarekovajih = 1;
-                tokens[tokenCount]++;
-            } else jeVNarekovajih = 0;
-            tokenCount++;
-        }
-    }
-    if (strcmp(line + tokens[tokenCount - 1], "&") == 0) {
-        background = 1;
-    }
-    else background = 0;
-
-    if (debugLevel > 0) {
-        printToken();
-        printf("Token count: %d\n", tokenCount);
-    }
-
-}
-
-int tokenizePipeline(char *vhod) {
+int tokenize(char *vhod) {
+    if (strlen(vhod) == 0) return 0;
     int isciPrvega = 1;
     int token_count = 0;
     int jeVNarekovajih = 0;
-    int indeksi[MAX_TOKENS + 1];
+    int indeksi[MAX_TOKENS];
     for (int i = 0; i < MAX_INPUT_LEN; i++) {
         // naleteli smo na komentar, lahko zakljucimo s to vrstico
         if (vhod[i] == '#' && jeVNarekovajih == 0 && isciPrvega == 1) {
@@ -167,19 +88,34 @@ int tokenizePipeline(char *vhod) {
             // prvic smo se srecali z narekovaji
             if (vhod[i] == '"' && jeVNarekovajih == 0) {
                 jeVNarekovajih = 1;
-                indeksi[tokenCount]++;
+                indeksi[token_count]++;
             } else jeVNarekovajih = 0;
             token_count++;
         }
     }
+
     for (int i = 0; i < token_count; i++) {
         zetoni[i] = vhod + indeksi[i];
     }
+
+    zetoni[token_count] = NULL;
+    if (strcmp(zetoni[token_count - 1], "&") == 0) {
+        background = 1;
+    }
+    else background = 0;
+
     if (debugLevel == 2) {
         printf("PIPELINE # TOKENS: %d\n", token_count);
         for (int i = 0; i < token_count; i++) {
             printf("Pipeline Token %d: '%s'\n", i, zetoni[i]);
         }
+    }
+
+    if (debugLevel > 0) {
+        for (int i = 0; i < token_count; i++) {
+            printf("Token %d: '%s'\n", i, zetoni[i]);
+        }
+        printf("Token count: %d\n", token_count);
     }
     return token_count;
 } 
@@ -187,21 +123,11 @@ int tokenizePipeline(char *vhod) {
 void debug_builtin() {
     // samo izpises trenutni debug level
     if (tokenCount == 1) {
-        izpisiDebugLevel = 1;
+        printf("%d\n", debugLevel);
     } 
     // spreminjas ali pa tudi ne
     else {
         debugLevel = atoi(zetoni[1]);
-        if (debugLevel == 0 && line[tokens[1]] != '0') {
-            jePrimerenDebug = 0;
-            // zacasno spremeni debugLevel na 1, da izpise debugLevel
-            debugLevel = 1;
-            spremeniNazajNaNic = 1;
-        }
-        else {
-            jePrimerenDebug = 1;
-        }
-        izpisiDebugLevel = 0;
     }
     zadnjiStatus = 0;
 }
@@ -254,6 +180,9 @@ void help_builtin() {
     printf("- \033[0;32mwaitone [pid]\033[0m pocaka na zakljucitev procesa s PID [pid]. V kolikor pid ni podan, se pocaka na prvega.\n");
     printf("- \033[0;32mwaitall\033[0m pocaka na zakljucitev vseh procesov, ki se izvajajo v ozadju.\n");
     printf("- \033[0;32mpipes\033[0m cevovodni ukazi, uporaba: pipes 'stopnja1', 'stopnja2', ...\n");
+    printf("- \033[0;32mcount [args]\033[0m izpise stevilo vrstic, besed, znakov v datotekah podanih kot [args].\n");
+    printf("- \033[0;32mtime [args]\033[0m izpise trenutni cas.\n");
+    printf("- \033[0;32mregex [vzorec] [file1] ... [file n]\033[0m izpise vse vrstice, v katerih se besedilo ujema z regularnim izrazom (za vsak file, ki je podan kot argument).\n");
     printf("\n\033[0;33mOpozorilo\033[0m Ostali ukazi so zunanji in njihovo obnasanje ni poznano je odvisno od posameznih ukazov. S previdnostjo izvajajte zunanje ukaze!\n");
     zadnjiStatus = 0;
 }
@@ -808,7 +737,7 @@ void pipes_builtin() {
         printf("Stevilo ukazov: %d\n", backupTokenCount - 1);
         for (int i = 1; i < backupTokenCount; i++) {
             printf("Sledi tokenizacija %d. ukaza (to je '%s'):\n", i, shraniZetone[i]);
-            tokenCount = tokenizePipeline(shraniZetone[i]);
+            tokenCount = tokenize(shraniZetone[i]);
         }
     }
     tokenCount = backupTokenCount;
@@ -858,7 +787,7 @@ void pipes_builtin() {
             for (int i = 0; i < MAX_TOKENS; i++) {
                 zetoni[i] = NULL;
             }
-            tokenCount = tokenizePipeline(shraniZetone[i]);
+            tokenCount = tokenize(shraniZetone[i]);
             zetoni[tokenCount] = NULL;
             find_builtin();
             exit(zadnjiStatus);
@@ -881,8 +810,74 @@ void pipes_builtin() {
     background = backgroundBackup;
 }
 
+void count_builtin() {
+    if (tokenCount < 2) {
+        zadnjiStatus = 1;
+        return;
+    }
 
-void (*pFunkcije[]) () = {debug_builtin, exit_builtin, help_builtin, prompt_builtin, status_builtin, print_builtin, echo_builtin, len_builtin, sum_builtin, calc_builtin, basename_builtin, dirname_builtin, dirch_builtin, dirwd_builtin, dirmk_builtin, dirrm_builtin, dirls_builtin, rename_builtin, unlink_builtin, remove_builtin, linkhard_builtin, linksoft_builtin, linkread_builtin, linklist_builtin, cpcat_builtin, pid_builtin, ppid_builtin, uid_builtin, euid_builtin, gid_builtin, egid_builtin, sysinfo_builtin, proc_builtin, pids_builtin, pinfo_builtin, waitone_builtin, waitall_builtin, pipes_builtin};
+    for (int i = 1; i < tokenCount; i++) {
+        FILE *file = fopen(zetoni[i], "r");
+        if (!file) {
+            perror("fopen");
+            zadnjiStatus = 1;
+            continue;
+        }
+
+        int lines = 0, words = 0, chars = 0;
+        char ch;
+        while ((ch = fgetc(file)) != EOF) {
+            chars++;
+            if (ch == '\n') lines++;
+            if (isspace(ch)) words++;
+        }
+        fclose(file);
+
+        printf("%s:\nVrstice: %d, besede: %d, znaki: %d\n", zetoni[i], lines, words, chars);
+    }
+    zadnjiStatus = 0;
+}
+
+void time_builtin() {
+    time_t now = time(NULL);
+    struct tm *t = localtime(&now);
+
+    printf("Current date and time: %02d-%02d-%04d %02d:%02d:%02d\n",
+           t->tm_mday, t->tm_mon + 1, t->tm_year + 1900,
+           t->tm_hour, t->tm_min, t->tm_sec);
+    zadnjiStatus = 0;
+}
+
+void regex_builtin() {
+    if (tokenCount < 3) {
+        fprintf(stderr, "Uporaba: regex [vzorec] [file1] ...\n");
+        zadnjiStatus = 1;
+        return;
+    }
+
+    char *pattern = zetoni[1];
+    for (int i = 2; i < tokenCount; i++) {
+        FILE *file = fopen(zetoni[i], "r");
+        if (!file) {
+            perror("fopen");
+            zadnjiStatus = 1;
+            continue;
+        }
+
+        char line[MAX_INPUT_LEN];
+        int line_number = 0;
+        while (fgets(line, sizeof(line), file)) {
+            line_number++;
+            if (strstr(line, pattern)) {
+                printf("%s:%d: %s", zetoni[i], line_number, line);
+            }
+        }
+        fclose(file);
+    }
+    zadnjiStatus = 0;
+}
+
+void (*pFunkcije[]) () = {debug_builtin, exit_builtin, help_builtin, prompt_builtin, status_builtin, print_builtin, echo_builtin, len_builtin, sum_builtin, calc_builtin, basename_builtin, dirname_builtin, dirch_builtin, dirwd_builtin, dirmk_builtin, dirrm_builtin, dirls_builtin, rename_builtin, unlink_builtin, remove_builtin, linkhard_builtin, linksoft_builtin, linkread_builtin, linklist_builtin, cpcat_builtin, pid_builtin, ppid_builtin, uid_builtin, euid_builtin, gid_builtin, egid_builtin, sysinfo_builtin, proc_builtin, pids_builtin, pinfo_builtin, waitone_builtin, waitall_builtin, pipes_builtin, count_builtin, time_builtin, regex_builtin};
 
 void execute_builtin(int ukaz) {
     if (!background) {
@@ -1011,16 +1006,8 @@ void find_builtin() {
             // mal grdo hendlanje debugga, ampak deluje
             if (debugLevel > 0 && previousDebugLevel > 0) {
                 printf("Executing builtin '%s' in %s\n", interniUkazi[i], background ? "background" : "foreground" );
-                if (spremeniNazajNaNic) {
-                    debugLevel = 0;
-                    spremeniNazajNaNic = 0;
-                }
             }
             previousDebugLevel = debugLevel;
-            // izpisuje debug level
-            if (i == 0 && izpisiDebugLevel) {
-                printf("%d\n", debugLevel);
-            }
             execute_builtin(i);
             return;
         }
@@ -1031,7 +1018,7 @@ void find_builtin() {
 void parse() {
     int count = tokenCount;
     for (int i = 0; i < count; i++) {
-        char* beseda = line + tokens[i];
+        char* beseda = zetoni[i];
         if (beseda[0] == '>') {
             tokenCount--;
             outputRedirect = beseda + 1;
@@ -1048,11 +1035,6 @@ void parse() {
             if (debugLevel > 0) printf("Background: '%d'\n", background);
         }
     }
-
-    for (int i = 0; i < tokenCount; i++) {
-        zetoni[i] = line + tokens[i];
-    }
-    zetoni[tokenCount] = NULL;
     find_builtin();
 }
 
@@ -1075,35 +1057,42 @@ void handle_sigchld (int signum)
 int main(int argc, char *argv[]) {
     native = isatty(STDIN_FILENO);
     strcpy(shellName, "mysh");
-    if (native) printf("\033[0;33m%s> \033[0m", shellName);
     strcpy(proc_path, "/proc");
     signal(SIGCHLD, handle_sigchld);
 
-    while (fgets(line, sizeof(line), stdin) != NULL) {
-        fflush(stdout);
-        fflush(stderr);
-        pripraviInput();
-        tokenize();
+    while (1) {
+        // compile: gcc shell.c -lreadline
+        char *input = readline(native ? "\033[0;33mmysh> \033[0m" : NULL);
+        if (input == NULL) {
+            break;
+        }
+
+        if (strlen(input) > 0) {
+            add_history(input);
+        }
+
+        strncpy(line, input, MAX_INPUT_LEN);
+        line[MAX_INPUT_LEN - 1] = '\0';
+        free(input);
+        if (debugLevel > 0) {
+            printf("Input: '%s'\n", line);
+        }
+        tokenCount = tokenize(line);
         if (tokenCount == 0) {
-            if (native) { printf("%s> ", shellName); }
             continue;
         }
         parse();
-        // sprazni input line, da ni problemov pri naslednjem branju
-        for (int i = 0; i < MAX_INPUT_LEN; i++) {
-            line[i] = '\0';
-            zaPrint[i] = '\0';
-        }
-        // sprazni se tokens tabelo
+        memset(line, 0, MAX_INPUT_LEN);
+        memset(zaPrint, 0, MAX_INPUT_LEN);
+
         for (int i = 0; i < MAX_TOKENS; i++) {
-            tokens[i] = 0;
+            zetoni[i] = NULL;
         }
         tokenCount = 0;
-        if (native) {
-            printf("\033[0;33m%s> \033[0m", shellName);
-        }
+
         inputRedirect = NULL;
         outputRedirect = NULL;
     }
+
     return zadnjiStatus;
 }
