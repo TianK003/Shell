@@ -13,7 +13,8 @@ Testing is done by each phase, so every feature added will be tested.
 - [X] Execution of several internal commands
 - [X] Support for executing external commands
 - [X] Background execution and redirection
+- [X] Pipeline support
 
 ### Features to be Implemented
-- [ ] Pipeline support
-
+- [ ] Fix any existing bugs
+- [ ] Implement additional features
