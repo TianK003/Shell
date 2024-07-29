@@ -1,0 +1,11 @@
+# Preusmerjanje zunanjih ukazov
+
+/bin/echo "Gori na gori gori" >gori.txt
+
+cat gori.txt
+cat <gori.txt
+
+cat <gori.txt >doli.txt
+
+cat doli.txt
+cat <doli.txt

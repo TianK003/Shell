@@ -1,0 +1,6 @@
+sysinfo >info.txt
+cpcat <info.txt
+uid >info.txt
+cpcat <info.txt
+proc >info.txt
+cpcat <info.txt
